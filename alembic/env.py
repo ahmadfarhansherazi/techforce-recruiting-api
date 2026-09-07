@@ -20,8 +20,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Migrations run as the owner role, which holds DDL rights the app role does not.
-config.set_main_option("sqlalchemy.url", get_settings().alembic_database_url)
+# Migrations run as the owner role, which holds DDL rights the app role does
+# not. A caller (tests, pointing this at a throwaway database) can pre-set
+# sqlalchemy.url on the Config it passes in, that takes precedence here.
+if config.get_main_option("sqlalchemy.url") in (None, "driver://user:pass@localhost/dbname"):
+    config.set_main_option("sqlalchemy.url", get_settings().alembic_database_url)
 
 
 def run_migrations_offline() -> None:
