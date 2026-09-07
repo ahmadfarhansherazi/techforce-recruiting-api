@@ -7,6 +7,7 @@ from alembic import context
 
 from app.config import get_settings
 from app.db.base import Base
+from app.db import models  # noqa: F401  (registers ORM tables on Base.metadata)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
