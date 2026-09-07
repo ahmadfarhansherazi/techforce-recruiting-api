@@ -10,6 +10,7 @@ class Application:
         self.settings = get_settings()
         self.database = Database(self.settings)
         self.fastapi = FastAPI(title="TechForce API")
+        self.fastapi.state.database = self.database
         self.fastapi.include_router(HealthRouter(self.database).router)
 
 
