@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import Select, func, literal_column, or_, select
+from sqlalchemy import Select, func, literal_column, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,7 @@ class CandidateRepository:
         limit = max(1, min(limit, self.MAX_LIMIT))
         offset = max(0, offset)
 
+        await self._set_recruiter_session_variable(scope)
         statement = self._scoped_statement(scope)
         if status is not None:
             statement = statement.where(Candidate.status == status.value)
@@ -50,6 +51,7 @@ class CandidateRepository:
         return CandidatePage(items=items, total=total)
 
     async def get_by_id(self, scope: RecruiterScope, candidate_id: int) -> Candidate | None:
+        await self._set_recruiter_session_variable(scope)
         statement = self._scoped_statement(scope).where(Candidate.id == candidate_id)
         return await self.session.scalar(statement)
 
@@ -58,6 +60,12 @@ class CandidateRepository:
         # never a per-row insert in a loop.
         if not candidates:
             return {}
+
+        # RETURNING is subject to the SELECT policy's row filter same as a
+        # plain SELECT, and this method never sets app.recruiter_id, so
+        # without this every row would look invisible and inserted/merged
+        # would silently read back as empty.
+        await self._set_bypass_rls()
 
         statement = pg_insert(Candidate).values([self._to_row(candidate) for candidate in candidates])
         statement = statement.on_conflict_do_update(
@@ -89,6 +97,19 @@ class CandidateRepository:
             "applied_date": candidate.applied_date,
             "salary": candidate.salary,
         }
+
+    async def _set_recruiter_session_variable(self, scope: RecruiterScope) -> None:
+        # SET LOCAL, not SET: scoped to this transaction only, so it cannot
+        # leak to a different request on a reused pooled connection. This is
+        # the second, database-enforced layer behind _scoped_statement below,
+        # the row-level security policy on candidates reads this same value.
+        await self.session.execute(
+            text("SELECT set_config('app.recruiter_id', :recruiter_id, true)"),
+            {"recruiter_id": scope.recruiter_id},
+        )
+
+    async def _set_bypass_rls(self) -> None:
+        await self.session.execute(text("SELECT set_config('app.bypass_rls', 'true', true)"))
 
     def _scoped_statement(self, scope: RecruiterScope) -> Select:
         # The only place the region predicate is applied. There is no unscoped

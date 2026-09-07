@@ -220,7 +220,16 @@ async def seeded_candidates(db_session: AsyncSession) -> dict[str, Candidate]:
             salary=Decimal("72000"),
         ),
     }
+    # This inserts directly through the ORM, bypassing CandidateRepository
+    # and the app.recruiter_id it would normally set. RETURNING (used here
+    # to read back generated ids) is checked against the same RLS SELECT
+    # policy as a plain read, so without this the insert itself would fail.
+    await db_session.execute(text("SELECT set_config('app.bypass_rls', 'true', true)"))
     for candidate in candidates.values():
         db_session.add(candidate)
     await db_session.flush()
+    # SET LOCAL lasts for the rest of this transaction, not just this insert,
+    # and db_session's transaction spans the whole test. Reset it so a test
+    # body that never sets a recruiter still sees RLS's real default-deny.
+    await db_session.execute(text("SELECT set_config('app.bypass_rls', 'false', true)"))
     return candidates
