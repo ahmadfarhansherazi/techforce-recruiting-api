@@ -49,6 +49,10 @@ class CandidateRepository:
 
         return CandidatePage(items=items, total=total)
 
+    async def get_by_id(self, scope: RecruiterScope, candidate_id: int) -> Candidate | None:
+        statement = self._scoped_statement(scope).where(Candidate.id == candidate_id)
+        return await self.session.scalar(statement)
+
     async def bulk_upsert(self, candidates: list[CandidateIn]) -> dict[str, bool]:
         # A write, not a read: intentionally takes no scope. One statement,
         # never a per-row insert in a loop.
